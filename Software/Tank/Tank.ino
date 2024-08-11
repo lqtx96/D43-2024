@@ -1,43 +1,47 @@
 #include <PS2X_lib.h>
 #include <Servo.h>
 
-#define PS2_DAT_PIN       51 // MOSI   
-#define PS2_CMD_PIN       50 // MISO
-#define PS2_SEL_PIN       53 
-#define PS2_CLK_PIN       52
+#define PS2_DAT_PIN       50 // 51 // MOSI   
+#define PS2_CMD_PIN       51 // 50 // MISO
+#define PS2_SEL_PIN       52 // 53 
+#define PS2_CLK_PIN       53 // 52
 #define PS2_PRESSURE      false
 #define PS2_RUMBLE        false
 
-#define FAN_PIN 2
-#define ARM_PIN 3
+#define LEFT_WHEEL_FORWARD_PIN 2
+#define LEFT_WHEEL_BACKWARD_PIN 3
+#define RIGHT_WHEEL_FORWARD_PIN 4
+#define RIGHT_WHEEL_BACKWARD_PIN 5
 
-#define LEFT_ROLLER_FIRE_PIN 4
-#define LEFT_ROLLER_LOAD_PIN 5
-#define RIGHT_ROLLER_FIRE_PIN 6
-#define RIGHT_ROLLER_LOAD_PIN 7
+#define FAN_DRAW_PIN 6
+#define FAN_BLOW_PIN 7
 
-#define LOADER_PUSH_PIN 8
-#define LOADER_PULL_PIN 9
+#define LEFT_ROLLER_FIRE_PIN 8
+#define LEFT_ROLLER_LOAD_PIN 9
+#define RIGHT_ROLLER_FIRE_PIN 11
+#define RIGHT_ROLLER_LOAD_PIN 10
 
-#define LEFT_WHEEL_FORWARD_PIN 10
-#define LEFT_WHEEL_BACKWARD_PIN 11
-#define RIGHT_WHEEL_FORWARD_PIN 12
-#define RIGHT_WHEEL_BACKWARD_PIN 13
+#define LOADER_PUSH_PIN 12
+#define LOADER_PULL_PIN 13
 
-#define BUZZER_PIN 48
-#define INDICATOR_LED_PIN 49
+#define ARM_PIN 45
+
+#define BUZZER_PIN 47
+#define LED_WHITE_PIN 46
+#define LED_GREEN_PIN 48
+#define LED_RED_PIN 49
 
 #define SPREAD_POSITION 0
-#define FOLD_POSITION 105
+#define FOLD_POSITION 120
 
-#define LEFT_ROLLER_FIRE_RATE 254
-#define LEFT_ROLLER_LOAD_RATE 100
+#define LEFT_ROLLER_FIRE_RATE 120
+#define LEFT_ROLLER_LOAD_RATE 25
 
-#define RIGHT_ROLLER_FIRE_RATE 254
-#define RIGHT_ROLLER_LOAD_RATE 100
+#define RIGHT_ROLLER_FIRE_RATE 120
+#define RIGHT_ROLLER_LOAD_RATE 25
 
 #define FAN_RATE 254
-#define LOADER_MOVE_RATE 254
+#define LOADER_MOVE_RATE 120
 
 #define STICK_THRESHOLD 50
 
@@ -58,9 +62,11 @@ int mappedRX = 0;
 int leftWheelSpeed = 0;
 int rightWheelSpeed = 0;
 
+int armAngle = 0;
+
 void configPinout();
 void configController();
-void buzz(int repeat, int duration);
+void buzz(unsigned int repeat, unsigned int duration);
 void move(unsigned int leftWheelPWM, unsigned int rightWheelPWM);
 void push();
 void pull();
@@ -75,6 +81,7 @@ void setup() {
   Serial.begin(115200); 
   configPinout();
   configController();
+  buzz(2, 100);
 }
 
 void loop() {
@@ -87,6 +94,7 @@ void loop() {
   else {    // DualShock Controller found
     ps2x.read_gamepad(false, false);  // read controller
 
+    // ************************************ Stand by position ************************************ //
     if(ps2x.Button(PSB_SELECT)) {
       Serial.println("STAND BY");
       turnOffFan();
@@ -95,6 +103,7 @@ void loop() {
       arm.write(FOLD_POSITION);
     }
 
+    // ************************************ Start position ************************************ //
     if(ps2x.Button(PSB_START)) {
       Serial.println("START");
       load();
@@ -102,6 +111,7 @@ void loop() {
       arm.write(SPREAD_POSITION);
     }
 
+    // ************************************ Move ************************************ //
     LY = ps2x.Analog(PSS_LY);
     RX = ps2x.Analog(PSS_RX);
     
@@ -125,43 +135,66 @@ void loop() {
     
     move(leftWheelSpeed, rightWheelSpeed);
 
+    // ************************************ Arm ************************************ //
+    if(ps2x.Button(PSB_TRIANGLE)) {
+      Serial.println("FOLD UP");
+      load(); // To make sure the ball is loaded by the rollers
+      buzz(1, 100);
+      if (armAngle == FOLD_POSITION) {        
+      }
+      else if (armAngle == SPREAD_POSITION) {
+        for (int i = SPREAD_POSITION; i < FOLD_POSITION; i++) {
+          arm.write(i);
+          delay(20);
+        }
+      }
+      armAngle = FOLD_POSITION;
+      delay(100);
+      turnOffFan();
+    }
+
+    if(ps2x.Button(PSB_CROSS)) {
+      Serial.println("SPREAD OUT");
+      if (armAngle == SPREAD_POSITION) {        
+      }
+      else if (armAngle == FOLD_POSITION) {
+        for (int i = FOLD_POSITION; i > SPREAD_POSITION; i--) {
+          arm.write(i);
+          delay(20);
+        }
+      }
+      armAngle = SPREAD_POSITION;
+      turnOnFan();
+    }
+
+    // ************************************ Loader ************************************ //
+    if(ps2x.Button(PSB_PAD_RIGHT)) {
+      Serial.println("FIRE");
+      fire();
+      buzz(2, 50);
+    }
+
+    if(ps2x.Button(PSB_PAD_LEFT)) {
+      Serial.println("LOAD");
+      load();
+      buzz(1, 100);
+    }
+
     if(!ps2x.Button(PSB_PAD_UP) && !ps2x.Button(PSB_PAD_DOWN)) {
       turnOffLoader();
     }
     else {
       if (ps2x.Button(PSB_PAD_UP)) {
         Serial.println("PUSH");
-        fire();
         push();
       }
       else if (ps2x.Button(PSB_PAD_DOWN)) {
         Serial.println("PULL");
-        load();
         pull();
       }
     }
-
-    if(ps2x.Button(PSB_TRIANGLE)) {
-      Serial.println("FOLD UP");
-      fire();
-      arm.write(FOLD_POSITION);
-    }
-
-    if(ps2x.Button(PSB_CROSS)) {
-      arm.write(SPREAD_POSITION);
-      Serial.println("SPREAD OUT");
-    }
-
-    if(ps2x.Button(PSB_PAD_RIGHT)) {
-      Serial.println("FIRE");
-      fire();
-    }
-
-    if(ps2x.Button(PSB_PAD_LEFT)) {
-      Serial.println("LOAD");
-      load();
-    }
-
+    
+    // ************************************ Fan ************************************ //
     if(ps2x.Button(PSB_SQUARE)) {
       Serial.println("FAN ON");
       turnOnFan();
@@ -180,13 +213,21 @@ void configPinout() {
   pinMode(RIGHT_WHEEL_FORWARD_PIN, OUTPUT);
   pinMode(RIGHT_WHEEL_BACKWARD_PIN, OUTPUT);
 
-  pinMode(FAN_PIN, OUTPUT);
+  pinMode(FAN_DRAW_PIN, OUTPUT);
+  pinMode(FAN_BLOW_PIN, OUTPUT);
+
+  pinMode(LEFT_ROLLER_FIRE_PIN, OUTPUT);
+  pinMode(RIGHT_ROLLER_FIRE_PIN, OUTPUT);
+  pinMode(LEFT_ROLLER_LOAD_PIN, OUTPUT);
+  pinMode(LEFT_ROLLER_LOAD_PIN, OUTPUT);
 
   pinMode(LOADER_PUSH_PIN, OUTPUT);
   pinMode(LOADER_PULL_PIN, OUTPUT);
 
   pinMode(BUZZER_PIN, OUTPUT);
-  pinMode(INDICATOR_LED_PIN, OUTPUT);
+  pinMode(LED_WHITE_PIN, OUTPUT);
+  pinMode(LED_GREEN_PIN, OUTPUT);
+  pinMode(LED_RED_PIN, OUTPUT);
 
   arm.attach(ARM_PIN);
 }
@@ -223,13 +264,17 @@ void configController() {
 void buzz(unsigned int repeat, unsigned int duration) {
   if ((repeat == 0) || (duration == 0))
     return;
-  for (unsigned int i = 0; i < duration; i++) {
-    digitalWrite(BUZZER_PIN, HIGH);
-    digitalWrite(INDICATOR_LED_PIN, HIGH);
+  for (unsigned int i = 0; i < repeat; i++) {
+     digitalWrite(BUZZER_PIN, HIGH);
+    digitalWrite(LED_WHITE_PIN, HIGH);
+    digitalWrite(LED_GREEN_PIN, HIGH);
+    digitalWrite(LED_RED_PIN, HIGH);
     delay(duration);
 
-    digitalWrite(BUZZER_PIN, LOW);
-    digitalWrite(INDICATOR_LED_PIN, LOW);
+     digitalWrite(BUZZER_PIN, LOW);
+    digitalWrite(LED_WHITE_PIN, LOW);
+    digitalWrite(LED_GREEN_PIN, LOW);
+    digitalWrite(LED_RED_PIN, LOW);
     delay(duration);
   }
 }
@@ -279,11 +324,11 @@ void load() {
 }
 
 void turnOnFan() {
-  analogWrite(FAN_PIN, FAN_RATE);
+  analogWrite(FAN_DRAW_PIN, FAN_RATE);
 }
 
 void turnOffFan() {
-  analogWrite(FAN_PIN, OFF);
+  analogWrite(FAN_DRAW_PIN, OFF);
 }
 
 void turnOffLoader() {
